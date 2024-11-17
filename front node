@@ -1,0 +1,236 @@
+// frontend/src/App.js
+import React from 'react';
+import { BrowserRouter as Router, Route, Switch, Redirect } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import Login from './components/Login';
+import Dashboard from './components/Dashboard';
+import Rooms from './components/Rooms';
+import Reservations from './components/Reservations';
+import Guests from './components/Guests';
+
+const PrivateRoute = ({ children, ...rest }) => {
+  const { user } = useAuth();
+  return (
+    <Route
+      {...rest}
+      render={() => user ? children : <Redirect to="/login" />}
+    />
+  );
+};
+
+const App = () => {
+  return (
+    <AuthProvider>
+      <Router>
+        <Switch>
+          <Route path="/login" component={Login} />
+          <PrivateRoute path="/dashboard">
+            <Dashboard />
+          </PrivateRoute>
+          <PrivateRoute path="/rooms">
+            <Rooms />
+          </PrivateRoute>
+          <PrivateRoute path="/reservations">
+            <Reservations />
+          </PrivateRoute>
+          <PrivateRoute path="/guests">
+            <Guests />
+          </PrivateRoute>
+          <Redirect from="/" to="/dashboard" />
+        </Switch>
+      </Router>
+    </AuthProvider>
+  );
+};
+
+// frontend/src/contexts/AuthContext.js
+import React, { createContext, useContext, useState } from 'react';
+import api from '../services/api';
+
+const AuthContext = createContext();
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(localStorage.getItem('user'));
+  const [token, setToken] = useState(localStorage.getItem('token'));
+
+  const login = async (email, password) => {
+    try {
+      const response = await api.post('/login', { email, password });
+      setUser(response.data.user);
+      setToken(response.data.token);
+      localStorage.setItem('user', JSON.stringify(response.data.user));
+      localStorage.setItem('token', response.data.token);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const logout = () => {
+    setUser(null);
+    setToken(null);
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, token, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => useContext(AuthContext);
+
+// frontend/src/components/Dashboard.js
+const Dashboard = () => {
+  const { user } = useAuth();
+  const [stats, setStats] = useState({
+    totalRooms: 0,
+    availableRooms: 0,
+    activeReservations: 0
+  });
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      // Implementar lógica para buscar estatísticas
+    };
+    fetchStats();
+  }, []);
+
+  return (
+    <div className="dashboard">
+      <h1>Dashboard</h1>
+      <div className="stats-grid">
+        <div className="stat-card">
+          <h3>Quartos Totais</h3>
+          <p>{stats.totalRooms}</p>
+        </div>
+        <div className="stat-card">
+          <h3>Quartos Disponíveis</h3>
+          <p>{stats.availableRooms}</p>
+        </div>
+        <div className="stat-card">
+          <h3>Reservas Ativas</h3>
+          <p>{stats.activeReservations}</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// frontend/src/components/Rooms.js
+const Rooms = () => {
+  const [rooms, setRooms] = useState([]);
+  const { user } = useAuth();
+
+  useEffect(() => {
+    const fetchRooms = async () => {
+      const response = await api.get('/rooms');
+      setRooms(response.data);
+    };
+    fetchRooms();
+  }, []);
+
+  const handleStatusChange = async (roomId, status) => {
+    if (user.role === 'admin') {
+      await api.patch(`/rooms/${roomId}`, { status });
+      // Atualizar lista de quartos
+    }
+  };
+
+  return (
+    <div className="rooms">
+      <h2>Gerenciamento de Quartos</h2>
+      <div className="rooms-grid">
+        {rooms.map(room => (
+          <div key={room._id} className={`room-card ${room.status}`}>
+            <h3>Quarto {room.number}</h3>
+            <p>Tipo: {room.type}</p>
+            <p>Status: {room.status}</p>
+            {user.role === 'admin' && (
+              <select
+                value={room.status}
+                onChange={(e) => handleStatusChange(room._id, e.target.value)}
+              >
+                <option value="available">Disponível</option>
+                <option value="occupied">Ocupado</option>
+                <option value="maintenance">Manutenção</option>
+                <option value="cleaning">Limpeza</option>
+              </select>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// frontend/src/components/Reservations.js
+const Reservations = () => {
+  const [reservations, setReservations] = useState([]);
+  const { user } = useAuth();
+
+  useEffect(() => {
+    const fetchReservations = async () => {
+      const response = await api.get('/reservations');
+      setReservations(response.data);
+    };
+    fetchReservations();
+  }, []);
+
+  const handleCheckin = async (reservationId) => {
+    await api.post(`/checkin/${reservationId}`);
+    // Atualizar lista de reservas
+  };
+
+  const handleCheckout = async (reservationId) => {
+    await api.post(`/checkout/${reservationId}`);
+    // Atualizar lista de reservas
+  };
+
+  return (
+    <div className="reservations">
+      <h2>Reservas</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Hóspede</th>
+            <th>Quarto</th>
+            <th>Check-in</th>
+            <th>Check-out</th>
+            <th>Status</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          {reservations.map(reservation => (
+            <tr key={reservation._id}>
+              <td>{reservation.user.name}</td>
+              <td>{reservation.room.number}</td>
+              <td>{new Date(reservation.checkIn).toLocaleDateString()}</td>
+              <td>{new Date(reservation.checkOut).toLocaleDateString()}</td>
+              <td>{reservation.status}</td>
+              <td>
+                {user.role === 'admin' && (
+                  <>
+                    <button onClick={() => handleCheckin(reservation._id)}>
+                      Check-in
+                    </button>
+                    <button onClick={() => handleCheckout(reservation._id)}>
+                      Check-out
+                    </button>
+                  </>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+// frontend/src/components/Guests.js
+const Guests = () => {
+  const [guests, set
